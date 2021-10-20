@@ -1,0 +1,60 @@
+image: "ruby:2.3.1"
+
+services:
+  - postgres:13.4
+
+variables:
+  RAILS_ENV: test
+  POSTGRES_DB: app_test
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: postgres
+  POSTGRES_HOST_AUTH_METHOD: trust
+  DATABASE_URL: "postgres://postgres:postgres@postgres:5432/app_test"
+
+cache:
+  paths:
+    - vendor/ruby
+
+test:
+  stage: tests
+  before_script:
+    - ruby -v # Print out ruby version for debugging
+    - apt-get update -q && apt-get install postgresql-client -yqq
+    - gem install bundler
+    - bundle config set path 'vendor'
+    - bundle install -j $(nproc)
+    - bundle exec rake db:migrate --quiet
+    - bundle exec rake db:test:prepare --quiet
+  script:
+    - bundle exec rails test
+
+.before_script_deploy:
+  before_script:
+    - curl https://cli-assets.heroku.com/install-ubuntu.sh | sh
+    - gem install dpl
+
+# This deploy job uses a simple deploy flow to Heroku, other providers, e.g. AWS Elastic Beanstalk
+# are supported too: https://github.com/travis-ci/dpl
+production:
+  type: deploy
+  extends: .before_script_deploy
+  environment: production
+  variables:
+    HEROKU_API_KEY: $HEROKU_API_KEY
+  script:
+    - dpl --provider=heroku --app=$HEROKU_APP_PRODUCTION --api-key=$HEROKU_API_KEY
+    - heroku run rails db:migrate --exit-code --app $HEROKU_APP_PRODUCTION
+  only:
+    - master
+
+staging:
+  type: deploy
+  extends: .before_script_deploy
+  environment: staging
+  variables:
+    HEROKU_API_KEY: $HEROKU_API_KEY
+  script:
+    - dpl --provider=heroku --app=$HEROKU_APP_STAGING --api-key=$HEROKU_API_KEY
+    - heroku run rails db:migrate --exit-code --app $HEROKU_APP_STAGING
+  only:
+    - staging
